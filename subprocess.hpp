@@ -251,24 +251,20 @@ static int write_n(int fd, const char* buf, size_t length) {
  *  reaches 50 after which it will return with whatever data it read.
  */
 static int read_atmost_n(int fd, char* buf, size_t read_upto) {
-  int rbytes = 0;
   int eintr_cnter = 0;
 
-  while (1) {
+  while (eintr_cnter < 50) {
     int read_bytes = read(fd, buf, read_upto);
     if (read_bytes == -1) {
       if (errno == EINTR) {
-        if (eintr_cnter >= 50) return -1;
         eintr_cnter++;
         continue;
       }
       return -1;
     }
-    if (read_bytes == 0) return rbytes;
-
-    rbytes += read_bytes;
+    return read_bytes;
   }
-  return rbytes;
+  return -1;
 }
 
 /*!
@@ -286,19 +282,17 @@ static int read_atmost_n(int fd, char* buf, size_t read_upto) {
 template <typename Buffer>
 // Requires Buffer to be of type class Buffer
 static int read_all(int fd, Buffer& buf) {
-  size_t orig_size = buf.size();
-  size_t increment = orig_size;
-  auto buffer = buf.data();
+  size_t increment = DEFAULT_BUF_CAP_BYTES;
   int total_bytes_read = 0;
+  buf.clear();
 
   while (1) {
-    int rd_bytes = read_atmost_n(fd, buffer, buf.size());
+    std::unique_ptr<char[]> rd_buf{new char[increment]};
+    int rd_bytes = read_atmost_n(fd, rd_buf.get(), increment);
+    buf.insert(buf.end(), &rd_buf.get()[0], &rd_buf.get()[rd_bytes]);
     if (rd_bytes == increment) {
       // Resize the buffer to accomodate more
-      orig_size = orig_size * 1.5;
-      increment = orig_size - buf.size();
-      buf.resize(orig_size);
-      buffer += rd_bytes;
+      increment *= 1.5;
       total_bytes_read += rd_bytes;
     } else if (rd_bytes != -1) {
       total_bytes_read += rd_bytes;
